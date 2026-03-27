@@ -1,34 +1,29 @@
 package base62
 
-import "strings"
+import (
+	"fmt"
+	"os"
 
-const alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-const base = uint64(len(alphabet))
+	"github.com/speps/go-hashids/v2"
+)
 
 func Encode(num uint64) string {
-	if num == 0 {
-		return string(alphabet[0])
+	hd := hashids.NewData()
+
+	hd.Salt = os.Getenv("HASHID_SALT")
+
+	hd.MinLength = 3
+
+	h, err := hashids.NewWithData(hd)
+	if err != nil {
+		// Fallback to a string representation of the ID so the app doesn't crash
+		return fmt.Sprintf("%d", num)
 	}
 
-	var b strings.Builder
-	// Pre-allocating 12 bytes covers the max value of a uint64 in Base62.
-	// This prevents the builder from having to resize memory while looping.
-	b.Grow(12)
-
-	for num > 0 {
-		b.WriteByte(alphabet[num%base])
-		num /= base
+	e, err := h.Encode([]int{int(num)})
+	if err != nil {
+		return fmt.Sprintf("%d", num)
 	}
 
-	return reverse(b.String())
-}
-
-func reverse(s string) string {
-	bytes := []byte(s)
-
-	for i, j := 0, len(bytes)-1; i < j; i, j = i+1, j-1 {
-		bytes[i], bytes[j] = bytes[j], bytes[i]
-	}
-
-	return string(bytes)
+	return e
 }

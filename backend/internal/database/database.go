@@ -12,6 +12,9 @@ import (
 	"gorm.io/gorm"
 )
 
+var DB *gorm.DB
+var RedisDB *redis.Client
+
 func ConnectPostgreSQL() *gorm.DB {
 	var dsn string
 
@@ -53,7 +56,7 @@ func ConnectPostgreSQL() *gorm.DB {
 	db.AutoMigrate(&models.Link{}, &models.User{})
 
 	log.Println("PostgreSQL connection established.")
-	return db
+	DB := db
 }
 
 func ConnectRedis() *redis.Client {
@@ -89,5 +92,5 @@ func ConnectRedis() *redis.Client {
 	}
 
 	log.Println("Redis connection established.")
-	return rdb
+	RedisDB := rdb
 }

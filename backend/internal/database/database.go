@@ -56,7 +56,7 @@ func ConnectPostgreSQL() {
 	db.AutoMigrate(&models.Link{}, &models.User{})
 
 	log.Println("PostgreSQL connection established.")
-	DB := db
+	DB = db
 }
 
 func ConnectRedis() {
@@ -92,5 +92,5 @@ func ConnectRedis() {
 	}
 
 	log.Println("Redis connection established.")
-	RedisDB := rdb
+	RedisDB = rdb
 }

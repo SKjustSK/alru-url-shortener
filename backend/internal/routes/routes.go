@@ -5,7 +5,7 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-func RegisterRoutes(e *echo.Echo) {
+func Register(e *echo.Echo) {
 	e.GET(":short_code", handlers.RedirectLink)
 	api := e.Group("/api")
 

@@ -15,7 +15,7 @@ import (
 var DB *gorm.DB
 var RedisDB *redis.Client
 
-func ConnectPostgreSQL() *gorm.DB {
+func ConnectPostgreSQL() {
 	var dsn string
 
 	databaseURL := os.Getenv("DATABASE_URL")
@@ -59,7 +59,7 @@ func ConnectPostgreSQL() *gorm.DB {
 	DB := db
 }
 
-func ConnectRedis() *redis.Client {
+func ConnectRedis() {
 	redisURL := os.Getenv("REDIS_URL")
 
 	if redisURL == "" {

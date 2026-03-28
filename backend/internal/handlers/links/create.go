@@ -23,7 +23,7 @@ type CreateLinkResponse struct {
 	ExpiresOn time.Time `json:"expires_on"`
 }
 
-func CreateLink(c *echo.Context) error { // Removed the * from echo.Context
+func CreateLink(c *echo.Context) error {
 	req := new(CreateLinkRequest)
 	if err := c.Bind(req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
@@ -56,7 +56,6 @@ func CreateLink(c *echo.Context) error { // Removed the * from echo.Context
 	}
 
 	// 3. Setup Link Record with Placeholder
-	// Since ShortCode is NOT NULL, we put a temporary value.
 	newLink := models.Link{
 		LongURL:   req.LongURL,
 		ShortCode: "pending",

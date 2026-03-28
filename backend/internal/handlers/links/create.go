@@ -1,6 +1,7 @@
 package links
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"os"
@@ -10,10 +11,12 @@ import (
 	"github.com/SKjustSK/alru-url-shortener/backend/internal/models"
 	"github.com/SKjustSK/alru-url-shortener/backend/pkg/base62"
 	"github.com/labstack/echo/v5"
+	"gorm.io/gorm"
 )
 
 type CreateLinkRequest struct {
 	LongURL   string     `json:"long_url"`
+	ShortCode *string    `json:"short_code,omitempty"`
 	ExpiresOn *time.Time `json:"expires_on,omitempty"`
 }
 
@@ -55,34 +58,68 @@ func CreateLink(c *echo.Context) error {
 		expiryTime = time.Now().Add(24 * time.Hour)
 	}
 
-	// 3. Setup Link Record with Placeholder
+	// 3. Setup Link Record
 	newLink := models.Link{
 		LongURL:   req.LongURL,
-		ShortCode: "pending",
+		ShortCode: "PENDING",
 		ExpiresAt: expiryTime,
 	}
 
-	// 4. Create Record to generate the auto-increment LinkID
-	if err := database.DB.Create(&newLink).Error; err != nil {
+	// If user provided a custom code (e.g. "promo"), set it now
+	if req.ShortCode != nil && *req.ShortCode != "" {
+		newLink.ShortCode = *req.ShortCode
+	}
+
+	// 4. Use a Database Transaction to ensure data integrity while inserting link
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		// If they want a custom code, check if it's currently active
+		if newLink.ShortCode != "PENDING" {
+			var count int64
+			tx.Model(&models.Link{}).
+				Where("short_code = ? AND expires_at > ?", newLink.ShortCode, time.Now()).
+				Count(&count)
+
+			if count > 0 {
+				// Trigger a rollback and pass this specific error string out
+				return errors.New("CODE_ACTIVE")
+			}
+		}
+
+		// Insert the record. If it succeeds, the transaction commits.
+		if err := tx.Create(&newLink).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	// Handle the results of the transaction
+	if err != nil {
+		if err.Error() == "CODE_ACTIVE" {
+			return c.JSON(http.StatusConflict, map[string]string{
+				"error": "This short code is currently active. You can re-use it once it expires, or choose another.",
+			})
+		}
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Database Save Failed"})
 	}
 
-	// 5. Generate ShortCode via Base62 Counter
-	newLink.ShortCode = base62.Encode(uint64(newLink.LinkID))
+	// 5. Generate ShortCode via Base62/Hashids (Only if no custom code was provided)
+	if newLink.ShortCode == "PENDING" {
+		newLink.ShortCode = base62.Encode(uint64(newLink.LinkID))
 
-	// 6. Persist the generated code back to the DB
-	if err := database.DB.Model(&newLink).Update("ShortCode", newLink.ShortCode).Error; err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to update short code"})
+		// Persist the generated code back to the DB
+		if err := database.DB.Model(&newLink).Update("ShortCode", newLink.ShortCode).Error; err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to update short code"})
+		}
 	}
 
-	// 7. Redis Caching (Capped at 24h)
+	// 6. Redis Caching
 	redisTTL := min(24*time.Hour, time.Until(expiryTime))
 	ctx := c.Request().Context()
 
-	// Error is ignored here so the user still gets their link if Redis is momentarily down
 	_ = database.RedisDB.Set(ctx, newLink.ShortCode, newLink.LongURL, redisTTL).Err()
 
-	// 8. Final Response
+	// 7. Final Response
 	baseURL := os.Getenv("BACKEND_URL")
 	if baseURL == "" {
 		baseURL = "http://localhost:1323"

@@ -6,7 +6,6 @@ import (
 )
 
 func Register(e *echo.Echo) {
-	// e.GET(":short_code", handlers.RedirectLink)
 	api := e.Group("/api")
 
 	api.POST("/links", links.CreateLink)
@@ -14,4 +13,5 @@ func Register(e *echo.Echo) {
 
 	// api.POST("/users", handlers.CreateUser)
 	// api.POST("/sessions", handlers.CreateSession)
+	e.GET("/:short_code", links.RedirectLink)
 }

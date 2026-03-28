@@ -2,6 +2,7 @@ package links
 
 import (
 	"errors"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -55,13 +56,14 @@ func CreateLink(c *echo.Context) error {
 			})
 		}
 	} else {
+		// Default to 24 hours if not provided
 		expiryTime = time.Now().Add(24 * time.Hour)
 	}
 
 	// 3. Setup Link Record
 	newLink := models.Link{
 		LongURL:   req.LongURL,
-		ShortCode: "PENDING",
+		ShortCode: "PENDING", // Safe placeholder
 		ExpiresAt: expiryTime,
 	}
 
@@ -70,7 +72,7 @@ func CreateLink(c *echo.Context) error {
 		newLink.ShortCode = *req.ShortCode
 	}
 
-	// 4. Use a Database Transaction to ensure data integrity while inserting link
+	// 4. Create Record Safely using a Database Transaction
 	err = database.DB.Transaction(func(tx *gorm.DB) error {
 		// If they want a custom code, check if it's currently active
 		if newLink.ShortCode != "PENDING" {
@@ -80,7 +82,7 @@ func CreateLink(c *echo.Context) error {
 				Count(&count)
 
 			if count > 0 {
-				// Trigger a rollback and pass this specific error string out
+				// Trigger a rollback and pass this specific error out
 				return errors.New("CODE_ACTIVE")
 			}
 		}
@@ -105,9 +107,29 @@ func CreateLink(c *echo.Context) error {
 
 	// 5. Generate ShortCode via Base62/Hashids (Only if no custom code was provided)
 	if newLink.ShortCode == "PENDING" {
-		newLink.ShortCode = base62.Encode(uint64(newLink.LinkID))
+		generatedCode := base62.Encode(uint64(newLink.LinkID))
+		charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-		// Persist the generated code back to the DB
+		// SAFETY CHECK: Use a loop to guarantee we break any rare collisions
+		for {
+			var activeCount int64
+			database.DB.Model(&models.Link{}).
+				Where("short_code = ? AND expires_at > ? AND link_id != ?", generatedCode, time.Now(), newLink.LinkID).
+				Count(&activeCount)
+
+			// If count is 0, the code is completely free. Break the loop.
+			if activeCount == 0 {
+				break
+			}
+
+			// COLLISION! Append a random character from the charset to mutate it
+			randomChar := string(charset[rand.Intn(len(charset))])
+			generatedCode = generatedCode + randomChar
+		}
+
+		newLink.ShortCode = generatedCode
+
+		// Persist the generated back to the DB
 		if err := database.DB.Model(&newLink).Update("ShortCode", newLink.ShortCode).Error; err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to update short code"})
 		}
@@ -117,6 +139,7 @@ func CreateLink(c *echo.Context) error {
 	redisTTL := min(24*time.Hour, time.Until(expiryTime))
 	ctx := c.Request().Context()
 
+	// Overwrite any existing Redis key instantly
 	_ = database.RedisDB.Set(ctx, newLink.ShortCode, newLink.LongURL, redisTTL).Err()
 
 	// 7. Final Response

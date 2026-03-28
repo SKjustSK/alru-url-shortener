@@ -22,8 +22,8 @@ type CreateLinkRequest struct {
 }
 
 type CreateLinkResponse struct {
-	ShortURL  string    `json:"short_url"`
 	LongURL   string    `json:"long_url"`
+	ShortURL  string    `json:"short_url"`
 	ExpiresOn time.Time `json:"expires_on"`
 }
 

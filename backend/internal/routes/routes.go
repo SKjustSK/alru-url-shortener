@@ -1,17 +1,35 @@
 package routes
 
 import (
+	"os"
+
+	"github.com/SKjustSK/alru-url-shortener/backend/internal/handlers/auth"
 	"github.com/SKjustSK/alru-url-shortener/backend/internal/handlers/links"
+	"github.com/SKjustSK/alru-url-shortener/backend/internal/models"
+	"github.com/golang-jwt/jwt/v5"
+	echojwt "github.com/labstack/echo-jwt/v5"
 	"github.com/labstack/echo/v5"
 )
 
 func Register(e *echo.Echo) {
 	api := e.Group("/api")
+	{
+		api.POST("/users", auth.CreateUser)
+		api.POST("/sessions", auth.CreateSession)
 
-	api.POST("/links", links.CreateLink)
-	// api.GET("/links", handlers.GetLinks)
+		// JWT Middleware
+		jwtConfig := echojwt.Config{
+			SigningKey: []byte(os.Getenv("JWT_SECRET")),
+			NewClaimsFunc: func(c *echo.Context) jwt.Claims {
+				return new(models.JWTCustomClaims)
+			},
+		}
+		protected := api.Group("", echojwt.WithConfig(jwtConfig))
+		{
+			protected.POST("/links", links.CreateLink)
+			protected.GET("/links", links.GetLinks)
+		}
+	}
 
-	// api.POST("/users", handlers.CreateUser)
-	// api.POST("/sessions", handlers.CreateSession)
 	e.GET("/:short_code", links.RedirectLink)
 }

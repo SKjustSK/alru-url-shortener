@@ -11,6 +11,7 @@ import (
 	"github.com/SKjustSK/alru-url-shortener/backend/internal/database"
 	"github.com/SKjustSK/alru-url-shortener/backend/internal/models"
 	"github.com/SKjustSK/alru-url-shortener/backend/pkg/base62"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v5"
 	"gorm.io/gorm"
 )
@@ -61,7 +62,10 @@ func CreateLink(c *echo.Context) error {
 	}
 
 	// 3. Setup Link Record
+	token := c.Get("user").(*jwt.Token)
+	claims := token.Claims.(*models.JWTCustomClaims)
 	newLink := models.Link{
+		UserID:    claims.UserID,
 		LongURL:   req.LongURL,
 		ShortCode: "PENDING", // Safe placeholder
 		ExpiresAt: expiryTime,
@@ -72,7 +76,19 @@ func CreateLink(c *echo.Context) error {
 		newLink.ShortCode = *req.ShortCode
 	}
 
-	// 4. Create Record Safely using a Database Transaction
+	// 4.1 Check Redis for short code
+	ctx := c.Request().Context()
+	if newLink.ShortCode != "PENDING" {
+		exists, err := database.RedisDB.Exists(ctx, newLink.ShortCode).Result()
+
+		if err == nil && exists > 0 {
+			return c.JSON(http.StatusConflict, map[string]string{
+				"error": "Custom short code is currently in use",
+			})
+		}
+	}
+
+	// 4.2 Create Record Safely using a Database Transaction
 	err = database.DB.Transaction(func(tx *gorm.DB) error {
 		// If they want a custom code, check if it's currently active
 		if newLink.ShortCode != "PENDING" {
@@ -137,9 +153,6 @@ func CreateLink(c *echo.Context) error {
 
 	// 6. Redis Caching
 	redisTTL := min(24*time.Hour, time.Until(expiryTime))
-	ctx := c.Request().Context()
-
-	// Overwrite any existing Redis key instantly
 	_ = database.RedisDB.Set(ctx, newLink.ShortCode, newLink.LongURL, redisTTL).Err()
 
 	// 7. Final Response

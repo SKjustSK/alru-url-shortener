@@ -53,7 +53,7 @@ func ConnectPostgreSQL() {
 	}
 
 	// Auto migrate tables to PostgreSQL
-	db.AutoMigrate(&models.Link{}, &models.User{})
+	db.AutoMigrate(&models.Link{}, &models.User{}, &models.Click{})
 
 	log.Println("PostgreSQL connection established.")
 	DB = db

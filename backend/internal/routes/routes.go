@@ -28,6 +28,7 @@ func Register(e *echo.Echo) {
 		{
 			protected.POST("/links", links.CreateLink)
 			protected.GET("/links", links.GetLinks)
+			protected.GET("/links/:short_code/analytics", links.GetLinkAnalytics)
 		}
 	}
 

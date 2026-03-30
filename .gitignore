@@ -16,7 +16,6 @@ Thumbs.db
 # Binaries and architectures
 bin/
 main
-api-server
 *.exe
 *.exe~
 *.dll

@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"net/http"
 	"os"
 
 	"github.com/SKjustSK/alru-url-shortener/backend/internal/handlers/auth"
@@ -13,6 +14,10 @@ import (
 )
 
 func Register(e *echo.Echo) {
+	e.GET("/ping", func(c *echo.Context) error {
+		return c.String(http.StatusOK, "pong")
+	})
+
 	api := e.Group("/api")
 	{
 		api.POST("/users", auth.CreateUser)

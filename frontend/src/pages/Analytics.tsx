@@ -28,7 +28,7 @@ interface AnalyticsData {
   long_url: string;
   total_clicks: number;
   timeline: TimeSeriesPoint[];
-  hourly: HourlyPoint[]; // NEW
+  hourly: HourlyPoint[];
   os: StatItem[];
   browsers: StatItem[];
   devices: StatItem[];

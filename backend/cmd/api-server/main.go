@@ -30,7 +30,22 @@ func main() {
 	e.Use(middleware.Recover())
 
 	// CORS middleware
-	e.Use(middleware.CORS(os.Getenv("FRONTEND_URL"), "http://localhost:5173"))
+	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins: []string{
+			os.Getenv("FRONTEND_URL"),
+			"http://localhost:5173",
+		},
+		AllowHeaders: []string{
+			echo.HeaderOrigin,
+			echo.HeaderContentType,
+			echo.HeaderAccept,
+			echo.HeaderAuthorization,
+		},
+		AllowMethods: []string{
+			"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS",
+		},
+		AllowCredentials: true,
+	}))
 
 	// Register all our routes
 	routes.Register(e)

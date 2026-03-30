@@ -36,7 +36,7 @@ func RedirectLink(c *echo.Context) error {
 		// Cache Miss
 		var link models.Link
 		err = database.DB.Select("link_id", "long_url", "expires_at").
-			Where("short_code = ? AND expires_at > ?", shortCode, time.Now()).
+			Where("short_code = ? AND expires_at > ?", shortCode, time.Now().UTC()).
 			Order("expires_at DESC").
 			First(&link).Error
 

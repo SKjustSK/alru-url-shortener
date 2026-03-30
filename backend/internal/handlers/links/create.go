@@ -51,14 +51,14 @@ func CreateLink(c *echo.Context) error {
 	var expiryTime time.Time
 	if req.ExpiresOn != nil {
 		expiryTime = *req.ExpiresOn
-		if expiryTime.Before(time.Now()) {
+		if expiryTime.Before(time.Now().UTC()) {
 			return c.JSON(http.StatusBadRequest, map[string]string{
 				"error": "Expiration date must be in the future",
 			})
 		}
 	} else {
 		// Default to 24 hours if not provided
-		expiryTime = time.Now().Add(24 * time.Hour)
+		expiryTime = time.Now().UTC().Add(24 * time.Hour)
 	}
 
 	// 3. Setup Link Record
@@ -94,7 +94,7 @@ func CreateLink(c *echo.Context) error {
 		if newLink.ShortCode != "PENDING" {
 			var count int64
 			tx.Model(&models.Link{}).
-				Where("short_code = ? AND expires_at > ?", newLink.ShortCode, time.Now()).
+				Where("short_code = ? AND expires_at > ?", newLink.ShortCode, time.Now().UTC()).
 				Count(&count)
 
 			if count > 0 {
@@ -130,7 +130,7 @@ func CreateLink(c *echo.Context) error {
 		for {
 			var activeCount int64
 			database.DB.Model(&models.Link{}).
-				Where("short_code = ? AND expires_at > ? AND link_id != ?", generatedCode, time.Now(), newLink.LinkID).
+				Where("short_code = ? AND expires_at > ? AND link_id != ?", generatedCode, time.Now().UTC(), newLink.LinkID).
 				Count(&activeCount)
 
 			// If count is 0, the code is completely free. Break the loop.

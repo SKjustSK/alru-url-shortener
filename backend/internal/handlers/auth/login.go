@@ -48,8 +48,8 @@ func CreateSession(c *echo.Context) error {
 		UserID: user.UserID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			// Token expires in 24 hours
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour * 24)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(time.Hour * 24)),
+			IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
 		},
 	}
 

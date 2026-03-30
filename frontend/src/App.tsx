@@ -6,9 +6,42 @@ import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Analytics from './pages/Analytics';
 
+// Custom inline SVG for GitHub since Lucide removed brand icons
+const GithubIcon = ({ size = 24, className = "" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.03c3.18-.3 6.5-1.5 6.5-7.07a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2 4.6 4.6 0 0 0-1.3 3.2c0 5.6 3.3 6.8 6.5 7.07a4.8 4.8 0 0 0-1 3.03V22"></path>
+    <path d="M9 18c-3.14 1.5-4.64-1.5-6-2"></path>
+  </svg>
+);
+
 const Landing = () => {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4">
+    <div className="relative min-h-screen flex flex-col items-center justify-center p-4">
+      
+      {/* GitHub Link in Top Right */}
+      <div className="absolute top-6 right-6 sm:top-8 sm:right-8">
+        <a 
+          href="https://github.com/SKjustSK/alru-url-shortener" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="text-gray-400 hover:text-black transition-colors"
+          title="View source on GitHub"
+        >
+          <GithubIcon size={24} />
+        </a>
+      </div>
+
       <div className="text-center max-w-2xl w-full">
         <div className="flex justify-center mb-6">
           <div className="bg-black text-white p-3 rounded-xl">

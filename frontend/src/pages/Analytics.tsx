@@ -7,6 +7,7 @@ import {
 } from 'recharts';
 import api from '../lib/axios';
 
+// --- Types ---
 interface TimeSeriesPoint {
   date: string;
   count: number;
@@ -50,6 +51,7 @@ export default function Analytics() {
 
   const displayBaseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:1323').replace(/^https?:\/\//, '');
 
+  // --- Data Fetching ---
   useEffect(() => {
     const fetchAnalytics = async () => {
       try {
@@ -70,6 +72,7 @@ export default function Analytics() {
     fetchAnalytics();
   }, [shortCode, navigate]);
 
+  // --- Loading & Error States ---
   if (isLoading) {
     return <div className="min-h-screen flex items-center justify-center text-gray-500">Loading analytics...</div>;
   }
@@ -85,12 +88,30 @@ export default function Analytics() {
     );
   }
 
+  // --- UTC to Local Time Conversion Logic ---
   const chartData = selectedDate === 'all' 
-    ? data.timeline.map(d => ({ label: d.date, count: d.count }))
+    ? data.timeline.map(d => {
+        // Parse UTC date string
+        const localDate = new Date(`${d.date}T00:00:00Z`);
+        return { 
+          label: localDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), 
+          count: d.count 
+        };
+      })
     : data.hourly
         .filter(h => h.date === selectedDate)
-        .map(h => ({ label: h.hour, count: h.count }));
+        .map(h => {
+          // Ensure hour format is strictly 2 digits (e.g. '14')
+          const hourNum = h.hour.split(':')[0].padStart(2, '0');
+          // Combine UTC date and UTC hour, append 'Z'
+          const localTime = new Date(`${h.date}T${hourNum}:00:00Z`);
+          return { 
+            label: localTime.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }), 
+            count: h.count 
+          };
+        });
 
+  // --- Shared Tooltip ---
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
@@ -104,6 +125,8 @@ export default function Analytics() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-12">
+      
+      {/* Navbar */}
       <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 lg:px-8">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <Link to="/dashboard" className="flex items-center gap-2 text-gray-500 hover:text-black transition-colors font-medium text-sm">
@@ -115,6 +138,7 @@ export default function Analytics() {
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 mt-8 space-y-6">
         
+        {/* Header Section */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="overflow-hidden">
             <h1 className="text-2xl font-extrabold text-black flex items-center gap-2 mb-1">
@@ -137,16 +161,18 @@ export default function Analytics() {
           </div>
         </div>
 
+        {/* Empty State vs Data State */}
         {data.total_clicks === 0 ? (
           <div className="text-center py-20 bg-white rounded-xl border border-gray-200 border-dashed">
             <p className="text-gray-500">No clicks recorded yet. Share your link to generate data!</p>
           </div>
         ) : (
           <>
+            {/* Timeline / Hourly Line Chart */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Click Timeline</h2>
+                
                 {data.timeline.length > 0 && (
                   <select 
                     value={selectedDate}
@@ -154,9 +180,15 @@ export default function Analytics() {
                     className="bg-gray-50 border border-gray-200 text-gray-900 text-xs rounded-lg focus:ring-black focus:border-black block py-1.5 px-3 outline-none cursor-pointer transition-colors"
                   >
                     <option value="all">Daily Overview</option>
-                    {data.timeline.map(t => (
-                      <option key={t.date} value={t.date}>{t.date}</option>
-                    ))}
+                    {data.timeline.map(t => {
+                      // Format dropdown dates to local timezone as well
+                      const localLabel = new Date(`${t.date}T00:00:00Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                      return (
+                        <option key={t.date} value={t.date}>
+                          {localLabel}
+                        </option>
+                      );
+                    })}
                   </select>
                 )}
               </div>
@@ -173,8 +205,10 @@ export default function Analytics() {
               </div>
             </div>
 
+            {/* Bottom Grid for Secondary Charts */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               
+              {/* Devices Pie Chart */}
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-6 flex items-center gap-2">
                   <LayoutGrid size={16} /> Devices
@@ -183,8 +217,8 @@ export default function Analytics() {
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie data={data.devices} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={2} dataKey="count">
-                        {data.devices.map((_entry, index) => (
-                          <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                        {data.devices && data.devices.map((_entry, index) => (
+                          <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} stroke="none" />
                         ))}
                       </Pie>
                       <Tooltip content={<CustomTooltip />} />
@@ -192,15 +226,19 @@ export default function Analytics() {
                   </ResponsiveContainer>
                 </div>
                 <div className="mt-4 space-y-2">
-                  {data.devices.slice(0, 3).map((item, i) => (
+                  {data.devices && data.devices.slice(0, 3).map((item, i) => (
                     <div key={item.name} className="flex justify-between text-sm">
-                      <span className="flex items-center gap-2"><div className="w-2 h-2 rounded-full" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length]}}></div>{item.name}</span>
+                      <span className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length]}}></div>
+                        {item.name}
+                      </span>
                       <span className="font-medium">{item.count}</span>
                     </div>
                   ))}
                 </div>
               </div>
 
+              {/* Referrers Bar Chart */}
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:col-span-2">
                 <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-6 flex items-center gap-2">
                   <MousePointerClick size={16} /> Top Referrers
@@ -217,12 +255,13 @@ export default function Analytics() {
                 </div>
               </div>
 
+              {/* Top Locations List */}
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-6 flex items-center gap-2">
                   <Globe size={16} /> Top Locations
                 </h2>
                 <div className="space-y-4">
-                  {data.countries.length === 0 ? (
+                  {!data.countries || data.countries.length === 0 ? (
                     <p className="text-sm text-gray-400">No location data</p>
                   ) : (
                     data.countries.slice(0, 5).map((country) => (

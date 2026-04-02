@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ExternalLink, Activity, LayoutGrid, Globe, MousePointerClick } from 'lucide-react';
 import { 
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, 
@@ -27,6 +27,7 @@ interface StatItem {
 interface AnalyticsData {
   short_code: string;
   long_url: string;
+  is_custom?: boolean;
   total_clicks: number;
   timeline: TimeSeriesPoint[];
   hourly: HourlyPoint[];
@@ -41,6 +42,7 @@ const PIE_COLORS = ['#000000', '#374151', '#6B7280', '#9CA3AF', '#D1D5DB'];
 
 export default function Analytics() {
   const { shortCode } = useParams<{ shortCode: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   
   const [data, setData] = useState<AnalyticsData | null>(null);
@@ -51,11 +53,17 @@ export default function Analytics() {
 
   const displayBaseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:1323').replace(/^https?:\/\//, '');
 
+  // Extract the custom flag from the URL (e.g., ?custom=true)
+  const isCustomLink = searchParams.get('custom') === 'true';
+
   // --- Data Fetching ---
   useEffect(() => {
     const fetchAnalytics = async () => {
       try {
-        const res = await api.get(`/api/links/${shortCode}/analytics`);
+        // Pass the custom flag to the backend so it queries the exact right link
+        const res = await api.get(`/api/links/${shortCode}/analytics`, {
+          params: { custom: isCustomLink }
+        });
         setData(res.data);
       } catch (err: any) {
         if (err.response?.status === 401) {
@@ -70,7 +78,7 @@ export default function Analytics() {
     };
 
     fetchAnalytics();
-  }, [shortCode, navigate]);
+  }, [shortCode, isCustomLink, navigate]);
 
   // --- Loading & Error States ---
   if (isLoading) {
@@ -91,7 +99,6 @@ export default function Analytics() {
   // --- UTC to Local Time Conversion Logic ---
   const chartData = selectedDate === 'all' 
     ? data.timeline.map(d => {
-        // Parse UTC date string
         const localDate = new Date(`${d.date}T00:00:00Z`);
         return { 
           label: localDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), 
@@ -101,9 +108,7 @@ export default function Analytics() {
     : data.hourly
         .filter(h => h.date === selectedDate)
         .map(h => {
-          // Ensure hour format is strictly 2 digits (e.g. '14')
           const hourNum = h.hour.split(':')[0].padStart(2, '0');
-          // Combine UTC date and UTC hour, append 'Z'
           const localTime = new Date(`${h.date}T${hourNum}:00:00Z`);
           return { 
             label: localTime.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }), 
@@ -122,6 +127,9 @@ export default function Analytics() {
     }
     return null;
   };
+
+  // Determine the correct prefix for display
+  const prefix = (data.is_custom ?? isCustomLink) ? '/c/' : '/';
 
   return (
     <div className="min-h-screen bg-gray-50 pb-12">
@@ -146,7 +154,7 @@ export default function Analytics() {
             </h1>
             <div className="flex items-center gap-2 text-sm">
               <span className="font-semibold text-gray-900 bg-gray-100 px-2 py-0.5 rounded">
-                {displayBaseUrl}/{data.short_code}
+                {displayBaseUrl}{prefix}{data.short_code}
               </span>
               <span className="text-gray-400">→</span>
               <a href={data.long_url} target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-black hover:underline truncate flex items-center gap-1 max-w-[200px] sm:max-w-md">
@@ -181,7 +189,6 @@ export default function Analytics() {
                   >
                     <option value="all">Daily Overview</option>
                     {data.timeline.map(t => {
-                      // Format dropdown dates to local timezone as well
                       const localLabel = new Date(`${t.date}T00:00:00Z`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
                       return (
                         <option key={t.date} value={t.date}>

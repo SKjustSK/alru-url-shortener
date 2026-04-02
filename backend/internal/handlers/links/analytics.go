@@ -14,7 +14,6 @@ type TimeSeriesPoint struct {
 	Count int64  `json:"count"`
 }
 
-// NEW: Struct for hourly drill-down data
 type HourlyPoint struct {
 	Date  string `json:"date"`
 	Hour  string `json:"hour"`
@@ -29,6 +28,7 @@ type StatItem struct {
 type AnalyticsResponse struct {
 	ShortCode   string            `json:"short_code"`
 	LongURL     string            `json:"long_url"`
+	IsCustom    bool              `json:"is_custom"`
 	TotalClicks int64             `json:"total_clicks"`
 	Timeline    []TimeSeriesPoint `json:"timeline"`
 	Hourly      []HourlyPoint     `json:"hourly"`
@@ -42,12 +42,16 @@ type AnalyticsResponse struct {
 func GetLinkAnalytics(c *echo.Context) error {
 	shortCode := c.Param("short_code")
 
+	// 1. Extract the custom flag from the URL query parameter (e.g. ?custom=true)
+	isCustomParam := c.QueryParam("custom")
+	isCustom := isCustomParam == "true"
+
 	token := c.Get("user").(*jwt.Token)
 	claims := token.Claims.(*models.JWTCustomClaims)
 	userID := claims.UserID
 
 	var link models.Link
-	if err := database.DB.Where("short_code = ? AND user_id = ?", shortCode, userID).First(&link).Error; err != nil {
+	if err := database.DB.Where("short_code = ? AND is_custom = ? AND user_id = ?", shortCode, isCustom, userID).First(&link).Error; err != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "Link not found or unauthorized"})
 	}
 
@@ -55,6 +59,7 @@ func GetLinkAnalytics(c *echo.Context) error {
 	response := AnalyticsResponse{
 		ShortCode: shortCode,
 		LongURL:   link.LongURL,
+		IsCustom:  link.IsCustom,
 	}
 
 	database.DB.Model(&models.Click{}).Where("link_id = ?", linkID).Count(&response.TotalClicks)
@@ -71,28 +76,28 @@ func GetLinkAnalytics(c *echo.Context) error {
 	}
 
 	database.DB.Raw(`
-		SELECT to_char(clicked_at, 'YYYY-MM-DD') as date, COUNT(*) as count 
-		FROM clicks WHERE link_id = ? GROUP BY date ORDER BY date ASC
-	`, linkID).Scan(&response.Timeline)
+        SELECT to_char(clicked_at, 'YYYY-MM-DD') as date, COUNT(*) as count 
+        FROM clicks WHERE link_id = ? GROUP BY date ORDER BY date ASC
+    `, linkID).Scan(&response.Timeline)
 
 	database.DB.Raw(`
-		SELECT to_char(clicked_at, 'YYYY-MM-DD') as date, to_char(clicked_at, 'HH24:00') as hour, COUNT(*) as count 
-		FROM clicks WHERE link_id = ? GROUP BY date, hour ORDER BY date ASC, hour ASC
-	`, linkID).Scan(&response.Hourly)
+        SELECT to_char(clicked_at, 'YYYY-MM-DD') as date, to_char(clicked_at, 'HH24:00') as hour, COUNT(*) as count 
+        FROM clicks WHERE link_id = ? GROUP BY date, hour ORDER BY date ASC, hour ASC
+    `, linkID).Scan(&response.Hourly)
 
 	database.DB.Raw(`SELECT os as name, COUNT(*) as count FROM clicks WHERE link_id = ? GROUP BY os ORDER BY count DESC`, linkID).Scan(&response.OS)
 	database.DB.Raw(`SELECT browser as name, COUNT(*) as count FROM clicks WHERE link_id = ? GROUP BY browser ORDER BY count DESC`, linkID).Scan(&response.Browsers)
 	database.DB.Raw(`SELECT device_type as name, COUNT(*) as count FROM clicks WHERE link_id = ? GROUP BY device_type ORDER BY count DESC`, linkID).Scan(&response.Devices)
 
 	database.DB.Raw(`
-		SELECT COALESCE(NULLIF(country, ''), 'Unknown') as name, COUNT(*) as count 
-		FROM clicks WHERE link_id = ? GROUP BY name ORDER BY count DESC
-	`, linkID).Scan(&response.Countries)
+        SELECT COALESCE(NULLIF(country, ''), 'Unknown') as name, COUNT(*) as count 
+        FROM clicks WHERE link_id = ? GROUP BY name ORDER BY count DESC
+    `, linkID).Scan(&response.Countries)
 
 	database.DB.Raw(`
-		SELECT COALESCE(NULLIF(referrer, ''), 'Direct / Email') as name, COUNT(*) as count 
-		FROM clicks WHERE link_id = ? GROUP BY name ORDER BY count DESC
-	`, linkID).Scan(&response.Referrers)
+        SELECT COALESCE(NULLIF(referrer, ''), 'Direct / Email') as name, COUNT(*) as count 
+        FROM clicks WHERE link_id = ? GROUP BY name ORDER BY count DESC
+    `, linkID).Scan(&response.Referrers)
 
 	return c.JSON(http.StatusOK, response)
 }

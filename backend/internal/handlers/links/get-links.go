@@ -11,11 +11,11 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// LinkItem defines exactly how each link looks in the JSON array
 type LinkItem struct {
 	ShortURL  string    `json:"short_url"`
 	LongURL   string    `json:"long_url"`
 	ShortCode string    `json:"short_code"`
+	IsCustom  bool      `json:"is_custom"`
 	CreatedAt time.Time `json:"created_at"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
@@ -49,10 +49,17 @@ func GetLinks(c *echo.Context) error {
 	formattedLinks := make([]LinkItem, 0, len(userLinks))
 
 	for _, link := range userLinks {
+		// Determine the correct route prefix
+		prefix := "/"
+		if link.IsCustom {
+			prefix = "/c/"
+		}
+
 		formattedLinks = append(formattedLinks, LinkItem{
-			ShortURL:  baseURL + "/" + link.ShortCode,
+			ShortURL:  baseURL + prefix + link.ShortCode,
 			LongURL:   link.LongURL,
 			ShortCode: link.ShortCode,
+			IsCustom:  link.IsCustom,
 			CreatedAt: link.CreatedAt,
 			ExpiresAt: link.ExpiresAt,
 		})

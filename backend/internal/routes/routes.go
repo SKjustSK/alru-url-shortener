@@ -37,5 +37,6 @@ func Register(e *echo.Echo) {
 		}
 	}
 
-	e.GET("/:short_code", links.RedirectLink)
+	e.GET("/c/:alias", links.RedirectCustom)
+	e.GET("/:short_code", links.RedirectGenerated)
 }

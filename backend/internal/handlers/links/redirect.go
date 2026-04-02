@@ -14,29 +14,45 @@ import (
 	"github.com/mileusna/useragent"
 )
 
-func RedirectLink(c *echo.Context) error {
+// 1. The Route Handlers
+func RedirectGenerated(c *echo.Context) error {
 	shortCode := c.Param("short_code")
+	return processRedirect(c, shortCode, false)
+}
+
+func RedirectCustom(c *echo.Context) error {
+	alias := c.Param("alias")
+	return processRedirect(c, alias, true)
+}
+
+// 2. The Core Redirect Logic
+func processRedirect(c *echo.Context, code string, isCustom bool) error {
 	ctx := c.Request().Context()
 
-	ip := c.RealIP() // Echo automatically handles proxy headers (X-Forwarded-For)
+	ip := c.RealIP()
 	uaString := c.Request().UserAgent()
 	referrer := c.Request().Referer()
-
 	country := c.Request().Header.Get("CF-IPCountry")
 
 	var redirectURL string
 	var linkID int64
 
+	// Namespace the Redis key based on the link type
+	redisKey := "gen:" + code
+	if isCustom {
+		redisKey = "custom:" + code
+	}
+
 	// Check Redis
-	longURL, err := database.RedisDB.Get(ctx, shortCode).Result()
+	longURL, err := database.RedisDB.Get(ctx, redisKey).Result()
 	if err == nil {
 		// Cache Hit
 		redirectURL = longURL
 	} else {
-		// Cache Miss
+		// Cache Miss - Query DB using BOTH code and IsCustom flag
 		var link models.Link
 		err = database.DB.Select("link_id", "long_url", "expires_at").
-			Where("short_code = ? AND expires_at > ?", shortCode, time.Now().UTC()).
+			Where("short_code = ? AND is_custom = ? AND expires_at > ?", code, isCustom, time.Now().UTC()).
 			Order("expires_at DESC").
 			First(&link).Error
 
@@ -49,24 +65,26 @@ func RedirectLink(c *echo.Context) error {
 
 		// Re-populate Redis
 		redisTTL := min(24*time.Hour, time.Until(link.ExpiresAt))
-		_ = database.RedisDB.Set(ctx, shortCode, link.LongURL, redisTTL).Err()
+		_ = database.RedisDB.Set(ctx, redisKey, link.LongURL, redisTTL).Err()
 	}
 
-	// Background analytics worker
-	go trackClick(shortCode, linkID, ip, uaString, referrer, country)
+	// Background analytics worker (passing isCustom so it finds the correct ID on a cache hit)
+	go trackClick(code, isCustom, linkID, ip, uaString, referrer, country)
 
-	// redirect
+	// Redirect
 	return c.Redirect(http.StatusFound, redirectURL)
 }
 
-// trackClick processes and saves the analytics data asynchronously
-func trackClick(shortCode string, linkID int64, ip, uaString, referrer, country string) {
+// 3. The Analytics Worker
+func trackClick(shortCode string, isCustom bool, linkID int64, ip, uaString, referrer, country string) {
 	bgCtx := context.Background()
 
-	// 1. Get LinkID if it was a Cache Hit (since Redis only gave us the URL)
+	// 1. Get LinkID if it was a Cache Hit
 	if linkID == 0 {
 		var link models.Link
-		if err := database.DB.WithContext(bgCtx).Select("link_id").Where("short_code = ?", shortCode).First(&link).Error; err != nil {
+		// Crucial Fix: Must include is_custom here, otherwise it might fetch the wrong ID!
+		if err := database.DB.WithContext(bgCtx).Select("link_id").
+			Where("short_code = ? AND is_custom = ?", shortCode, isCustom).First(&link).Error; err != nil {
 			return
 		}
 		linkID = link.LinkID

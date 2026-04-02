@@ -1,8 +1,6 @@
 package links
 
 import (
-	"errors"
-	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -13,12 +11,11 @@ import (
 	"github.com/SKjustSK/alru-url-shortener/backend/pkg/base62"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v5"
-	"gorm.io/gorm"
 )
 
 type CreateLinkRequest struct {
 	LongURL   string     `json:"long_url"`
-	ShortCode *string    `json:"short_code,omitempty"`
+	ShortCode *string    `json:"short_code,omitempty"` // Used as Custom Alias if provided
 	ExpiresOn *time.Time `json:"expires_on,omitempty"`
 }
 
@@ -61,108 +58,76 @@ func CreateLink(c *echo.Context) error {
 		expiryTime = time.Now().UTC().Add(24 * time.Hour)
 	}
 
-	// 3. Setup Link Record
+	// 3. Setup Initial Link Record
 	token := c.Get("user").(*jwt.Token)
 	claims := token.Claims.(*models.JWTCustomClaims)
+
 	newLink := models.Link{
 		UserID:    claims.UserID,
 		LongURL:   req.LongURL,
-		ShortCode: "PENDING", // Safe placeholder
 		ExpiresAt: expiryTime,
 	}
 
-	// If user provided a custom code (e.g. "promo"), set it now
-	if req.ShortCode != nil && *req.ShortCode != "" {
+	// 4. Link insertiong
+	isCustom := req.ShortCode != nil && *req.ShortCode != ""
+	newLink.IsCustom = isCustom
+
+	if isCustom {
+		// --- CUSTOM LINK ---
 		newLink.ShortCode = *req.ShortCode
+
+		// Attempt to insert directly. PostgreSQL's composite unique index will block duplicates.
+		if err := database.DB.Create(&newLink).Error; err != nil {
+			return c.JSON(http.StatusConflict, map[string]string{
+				"error": "This custom alias is already in use. Please choose another.",
+			})
+		}
+	} else {
+		// --- GENERATED LINK ---
+		newLink.ShortCode = "PENDING" // Safe placeholder
+
+		// Insert first to let PostgreSQL generate the auto-incrementing LinkID
+		if err := database.DB.Create(&newLink).Error; err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to initialize link"})
+		}
+
+		// Because it uses the unique LinkID, collisions are mathematically impossible.
+		newLink.ShortCode = base62.Encode(uint64(newLink.LinkID))
+
+		// Update the row with the newly generated secure code
+		if err := database.DB.Model(&newLink).Update("short_code", newLink.ShortCode).Error; err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to finalize short code"})
+		}
 	}
 
-	// 4.1 Check Redis for short code
+	// 5. Redis Caching
 	ctx := c.Request().Context()
-	if newLink.ShortCode != "PENDING" {
-		exists, err := database.RedisDB.Exists(ctx, newLink.ShortCode).Result()
-
-		if err == nil && exists > 0 {
-			return c.JSON(http.StatusConflict, map[string]string{
-				"error": "Custom short code is currently in use",
-			})
-		}
-	}
-
-	// 4.2 Create Record Safely using a Database Transaction
-	err = database.DB.Transaction(func(tx *gorm.DB) error {
-		// If they want a custom code, check if it's currently active
-		if newLink.ShortCode != "PENDING" {
-			var count int64
-			tx.Model(&models.Link{}).
-				Where("short_code = ? AND expires_at > ?", newLink.ShortCode, time.Now().UTC()).
-				Count(&count)
-
-			if count > 0 {
-				// Trigger a rollback and pass this specific error out
-				return errors.New("CODE_ACTIVE")
-			}
-		}
-
-		// Insert the record. If it succeeds, the transaction commits.
-		if err := tx.Create(&newLink).Error; err != nil {
-			return err
-		}
-
-		return nil
-	})
-
-	// Handle the results of the transaction
-	if err != nil {
-		if err.Error() == "CODE_ACTIVE" {
-			return c.JSON(http.StatusConflict, map[string]string{
-				"error": "This short code is currently active. You can re-use it once it expires, or choose another.",
-			})
-		}
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Database Save Failed"})
-	}
-
-	// 5. Generate ShortCode via Base62/Hashids (Only if no custom code was provided)
-	if newLink.ShortCode == "PENDING" {
-		generatedCode := base62.Encode(uint64(newLink.LinkID))
-		charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
-		// SAFETY CHECK: Use a loop to guarantee we break any rare collisions
-		for {
-			var activeCount int64
-			database.DB.Model(&models.Link{}).
-				Where("short_code = ? AND expires_at > ? AND link_id != ?", generatedCode, time.Now().UTC(), newLink.LinkID).
-				Count(&activeCount)
-
-			// If count is 0, the code is completely free. Break the loop.
-			if activeCount == 0 {
-				break
-			}
-
-			// COLLISION! Append a random character from the charset to mutate it
-			randomChar := string(charset[rand.Intn(len(charset))])
-			generatedCode = generatedCode + randomChar
-		}
-
-		newLink.ShortCode = generatedCode
-
-		// Persist the generated back to the DB
-		if err := database.DB.Model(&newLink).Update("ShortCode", newLink.ShortCode).Error; err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to update short code"})
-		}
-	}
-
-	// 6. Redis Caching
 	redisTTL := min(24*time.Hour, time.Until(expiryTime))
-	_ = database.RedisDB.Set(ctx, newLink.ShortCode, newLink.LongURL, redisTTL).Err()
 
-	// 7. Final Response
+	// Namespace the Redis keys to prevent overlapping
+	redisKey := newLink.ShortCode
+	if newLink.IsCustom {
+		redisKey = "custom:" + newLink.ShortCode
+	} else {
+		redisKey = "gen:" + newLink.ShortCode
+	}
+
+	_ = database.RedisDB.Set(ctx, redisKey, newLink.LongURL, redisTTL).Err()
+
+	// 6. Final Response Construction
 	baseURL := os.Getenv("BACKEND_URL")
 	if baseURL == "" {
 		baseURL = "http://localhost:1323"
 	}
 
+	// Apply the route prefixing if it is a custom link
+	prefix := "/"
+	if newLink.IsCustom {
+		prefix = "/c/"
+	}
+
 	return c.JSON(http.StatusCreated, CreateLinkResponse{
-		ShortURL:  baseURL + "/" + newLink.ShortCode,
+		ShortURL:  baseURL + prefix + newLink.ShortCode,
 		LongURL:   newLink.LongURL,
 		ExpiresOn: expiryTime,
 	})

@@ -55,3 +55,22 @@ To stop containers and delete database and cache volumes:
 ```bash
 docker compose down -v
 ```
+
+## Performance Benchmarking
+
+To measure software-level redirection throughput and latency, load tests were executed using `wrk` against the Redis-cached redirection handler.
+
+### Running the Benchmark
+
+1. Install `wrk` on your machine (e.g. `sudo apt install wrk` on Debian/Ubuntu).
+2. Create and access a shortlink once to ensure it is cached in Redis (self-warming cache).
+3. Run the load test with 12 threads and 400 concurrent connections for 30 seconds:
+   ```bash
+   wrk -t12 -c400 -d30s http://localhost:1323/your_short_code
+   ```
+
+### Results
+
+The Go backend and Redis dual-layer setup processed **42,511 requests per second** with a **9.44ms average latency**, successfully handling **1.27 million requests** with **0 errors**:
+
+![Benchmark Results](docs/benchmark_results.png)

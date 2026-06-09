@@ -6,6 +6,7 @@ import (
 
 	"github.com/SKjustSK/alru-url-shortener/backend/internal/handlers/auth"
 	"github.com/SKjustSK/alru-url-shortener/backend/internal/handlers/links"
+	"github.com/SKjustSK/alru-url-shortener/backend/internal/middleware"
 	"github.com/SKjustSK/alru-url-shortener/backend/internal/models"
 	"github.com/golang-jwt/jwt/v5"
 	echojwt "github.com/labstack/echo-jwt/v5"
@@ -31,7 +32,7 @@ func Register(e *echo.Echo) {
 		}
 		protected := api.Group("", echojwt.WithConfig(jwtConfig))
 		{
-			protected.POST("/links", links.CreateLink)
+			protected.POST("/links", links.CreateLink, middleware.LinkRateLimiter)
 			protected.GET("/links", links.GetLinks)
 			protected.GET("/links/:short_code/analytics", links.GetLinkAnalytics)
 		}

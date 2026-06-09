@@ -4,10 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/SKjustSK/alru-url-shortener/backend/internal/analytics"
 	"github.com/SKjustSK/alru-url-shortener/backend/internal/database"
 	"github.com/SKjustSK/alru-url-shortener/backend/internal/models"
 	"github.com/labstack/echo/v5"
@@ -44,10 +48,19 @@ func processRedirect(c *echo.Context, code string, isCustom bool) error {
 	}
 
 	// Check Redis
-	longURL, err := database.RedisDB.Get(ctx, redisKey).Result()
+	redisVal, err := database.RedisDB.Get(ctx, redisKey).Result()
 	if err == nil {
-		// Cache Hit
-		redirectURL = longURL
+		// Cache Hit - Parse linkID and redirectURL from "linkID|longURL"
+		if idx := strings.Index(redisVal, "|"); idx != -1 {
+			idStr := redisVal[:idx]
+			redirectURL = redisVal[idx+1:]
+			if id, parseErr := strconv.ParseInt(idStr, 10, 64); parseErr == nil {
+				linkID = id
+			}
+		} else {
+			// Fallback for old cache format
+			redirectURL = redisVal
+		}
 	} else {
 		// Cache Miss - Query DB using BOTH code and IsCustom flag
 		var link models.Link
@@ -64,8 +77,9 @@ func processRedirect(c *echo.Context, code string, isCustom bool) error {
 		linkID = link.LinkID
 
 		// Re-populate Redis
+		redisVal := fmt.Sprintf("%d|%s", link.LinkID, link.LongURL)
 		redisTTL := min(24*time.Hour, time.Until(link.ExpiresAt))
-		_ = database.RedisDB.Set(ctx, redisKey, link.LongURL, redisTTL).Err()
+		_ = database.RedisDB.Set(ctx, redisKey, redisVal, redisTTL).Err()
 	}
 
 	// Background analytics worker (passing isCustom so it finds the correct ID on a cache hit)
@@ -125,6 +139,6 @@ func trackClick(shortCode string, isCustom bool, linkID int64, ip, uaString, ref
 		Browser:    ua.Name,
 	}
 
-	// 5. Save to Postgres
-	database.DB.WithContext(bgCtx).Create(&click)
+	// 5. Queue click event to background batch worker
+	analytics.QueueClick(click)
 }

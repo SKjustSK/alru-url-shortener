@@ -1,6 +1,7 @@
 package links
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -112,7 +113,8 @@ func CreateLink(c *echo.Context) error {
 		redisKey = "gen:" + newLink.ShortCode
 	}
 
-	_ = database.RedisDB.Set(ctx, redisKey, newLink.LongURL, redisTTL).Err()
+	redisVal := fmt.Sprintf("%d|%s", newLink.LinkID, newLink.LongURL)
+	_ = database.RedisDB.Set(ctx, redisKey, redisVal, redisTTL).Err()
 
 	// 6. Final Response Construction
 	baseURL := os.Getenv("BACKEND_URL")
